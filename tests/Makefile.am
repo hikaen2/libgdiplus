@@ -315,6 +315,7 @@ EXTRA_DIST =			\
 	$(testtiffcodec_SOURCES) \
 	$(testwmfcodec_SOURCES) \
 	AdobeRGB1998.icc \
+	test-exif.jpg \
 	test-gsa.png \
 	test-trns.png \
 	test.bmp \
@@ -327,6 +328,7 @@ EXTRA_DIST =			\
 	test.tif \
 	test.ttf \
 	test.wmf \
+	test3.ico \
 	testhelpers.h \
 	lsansuppressions.txt \
 	$(NULL)
