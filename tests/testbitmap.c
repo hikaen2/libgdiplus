@@ -5,8 +5,8 @@
 #endif
 
 #if defined(USE_WINDOWS_GDIPLUS)
-#include <Windows.h>
-#include <GdiPlus.h>
+#include <windows.h>
+#include <gdiplus.h>
 
 #pragma comment(lib, "gdiplus")
 #else

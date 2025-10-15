@@ -6,8 +6,8 @@
 
 #if defined(USE_WINDOWS_GDIPLUS)
 #define GDIPVER 0x0110
-#include <Windows.h>
-#include <GdiPlus.h>
+#include <windows.h>
+#include <gdiplus.h>
 
 #pragma comment(lib, "gdiplus.lib")
 #else
