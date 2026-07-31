@@ -17,6 +17,7 @@ linux-build:
         - 'make -j$(nproc)'
         - 'make install DESTDIR=$PWD'
         - 'make check'
+        - 'make -C tests run-gtest check'
 
 build-dist:
     stage: build
