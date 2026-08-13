@@ -2,10 +2,6 @@
 
 This is part of the [Mono project](http://www.mono-project.com/).
 
-Build status:
-
-[![Build Status](https://dev.azure.com/dnceng/public/_apis/build/status/mono/mono-libgdiplus-ci?branchName=main)](https://dev.azure.com/dnceng/public/_build/latest?definitionId=617&branchName=main)
-
 ### Requirements:
 
 This requires the libraries used by the Cairo vector graphics library to build (freetype2, fontconfig, Xft2 and libpng).
@@ -28,20 +24,22 @@ On **Windows** you can use [Vcpkg](https://github.com/Microsoft/vcpkg) to instal
 
 ### Build instructions
 
-To build on **OSX** without X11:
+To build on **OSX** from source tarball without X11:
 
-	./autogen.sh --without-x11 --prefix=YOUR_PREFIX
+	./configure --without-x11 --prefix=YOUR_PREFIX
 	make
 
 To build on **OSX with X11** (e.g. from XQuartz):
 
-	PKG_CONFIG_PATH=/opt/X11/lib/pkgconfig ./autogen.sh --prefix=YOUR_PREFIX
+	PKG_CONFIG_PATH=/opt/X11/lib/pkgconfig ./configure --prefix=YOUR_PREFIX
 	make
 
 To build on **Linux**:
 
-	./autogen.sh --prefix=YOUR_PREFIX
+	./configure --prefix=YOUR_PREFIX
 	make
+
+To build from the Git repo, run `autogen.sh` instead of `configure`.
 
 To build on **Windows**, open `libgdiplus.sln`.
 
@@ -53,12 +51,12 @@ Run the following command from the root of the repository:
 
 To run the tests with Clang sanitizers, run the following command from the root of the repository:
 
-	./autogen.sh --enable-asan
+	./configure --enable-asan
 	make check
 
 To run the unit tests with leak sanitizers, run the following command from the root of the repository:
 
-	./autogen.sh --enable-asan
+	./configure --enable-asan
 	export ASAN_OPTIONS=detect_leaks=1:fast_unwind_on_malloc=0
 	export LSAN_OPTIONS=suppressions=lsansuppressions.txt
 	make check
@@ -71,7 +69,7 @@ Code coverage stats are generated with `lcov`. You can use [Homebrew](https://br
 
 To run the tests with code coverage, run the following commands from the root of the repository:
 
-	./autogen.sh --enable-coverage
+	./configure --enable-coverage
 	make check
 	lcov --capture --directory src --output-file coverage.info
 	genhtml coverage.info --output-directory coverage
