@@ -175,8 +175,8 @@ gdip_read_ico_image_from_file_stream (void *pointer, GpImage **image, ImageSourc
 	result->type = ImageTypeBitmap;
 	result->image_format = ICON;
 	result->active_bitmap->pixel_format = PixelFormat32bppARGB; /* icons are always promoted to 32 bbp */
-	result->active_bitmap->width = entry.bWidth;
-	result->active_bitmap->height = entry.bHeight;
+	result->active_bitmap->width = bih.bV5Width;
+	result->active_bitmap->height = bih.bV5Height / 2;
 	result->active_bitmap->stride = result->active_bitmap->width * 4;
 	/* Ensure 32bits alignment */
 	gdip_align_stride (result->active_bitmap->stride);
@@ -257,7 +257,7 @@ gdip_read_ico_image_from_file_stream (void *pointer, GpImage **image, ImageSourc
 	result->active_bitmap->image_flags = ImageFlagsReadOnly | ImageFlagsHasRealPixelSize | ImageFlagsColorSpaceRGB | ImageFlagsHasAlpha;
 
 	line_xor_length = (((bih.bV5BitCount * entry.bWidth + 31) & ~31) >> 3);
-	xor_size = line_xor_length * entry.bHeight;
+	xor_size = line_xor_length * result->active_bitmap->height;
 	xor_data = (BYTE*) GdipAlloc (xor_size);
 	if (!xor_data) {
 		status = OutOfMemory;
@@ -269,7 +269,7 @@ gdip_read_ico_image_from_file_stream (void *pointer, GpImage **image, ImageSourc
 	}
 
 	line_and_length = (((entry.bWidth + 31) & ~31) >> 3);
-	and_size = line_and_length * entry.bHeight;
+	and_size = line_and_length * result->active_bitmap->height;
 	and_data = (BYTE*) GdipAlloc (and_size);
 	if (!and_data) {
 		status = OutOfMemory;
