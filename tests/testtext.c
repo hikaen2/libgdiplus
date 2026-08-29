@@ -306,6 +306,158 @@ static void test_measure_string_alignment(void)
 	GdipDeleteRegion (region);
 }
 
+/* Number of pixels that were painted over the white background. */
+#if defined(USE_PANGO_RENDERING) || defined(USE_WINDOWS_GDIPLUS)
+
+static INT count_ink (GpImage *image)
+{
+	UINT width, height, x, y;
+	INT ink = 0;
+
+	GdipGetImageWidth (image, &width);
+	GdipGetImageHeight (image, &height);
+
+	for (y = 0; y < height; y++) {
+		for (x = 0; x < width; x++) {
+			ARGB pixel;
+			GdipBitmapGetPixel ((GpBitmap *) image, x, y, &pixel);
+			if ((pixel & 0x00FFFFFF) != 0x00FFFFFF)
+				ink++;
+		}
+	}
+
+	return ink;
+}
+
+/* Draws stringUnicode the way ThemeWin32Classic.ButtonBase_DrawText does, into a
+ * rectangle of the given height, and returns the number of pixels it painted. */
+static INT draw_button_label (GpFont *font, GDIPCONST WCHAR *stringUnicode, INT formatFlags, REAL height)
+{
+	GpImage *image;
+	GpGraphics *graphics;
+	GpStringFormat *format;
+	GpSolidFill *brush;
+	/* Rectangle.Inflate (button.ClientRectangle, -4, -4) for a 86x23 MessageBox button. */
+	GpRectF rect = { 4, 4, 78, height };
+	GpStatus status;
+	INT ink;
+
+	status = GdipCreateBitmapFromScan0 (100, 40, 0, PixelFormat32bppRGB, NULL, (GpBitmap **) &image);
+	expect (Ok, status);
+	status = GdipGetImageGraphicsContext (image, &graphics);
+	expect (Ok, status);
+	status = GdipGraphicsClear (graphics, 0xFFFFFFFF);
+	expect (Ok, status);
+	status = GdipCreateSolidFill (0xFF000000, &brush);
+	expect (Ok, status);
+	status = GdipCreateStringFormat (formatFlags, 0, &format);
+	expect (Ok, status);
+	/* ButtonBase centres its label both ways. */
+	status = GdipSetStringFormatAlign (format, StringAlignmentCenter);
+	expect (Ok, status);
+	status = GdipSetStringFormatLineAlign (format, StringAlignmentCenter);
+	expect (Ok, status);
+
+	status = GdipDrawString (graphics, stringUnicode, -1, font, &rect, format, (GpBrush *) brush);
+	expect (Ok, status);
+
+	GdipDeleteGraphics (graphics);
+	ink = count_ink (image);
+
+	GdipDeleteStringFormat (format);
+	GdipDeleteBrush ((GpBrush *) brush);
+	GdipDisposeImage (image);
+	return ink;
+}
+
+static void measure_line_limit (GpFont *font, GDIPCONST WCHAR *s, REAL height, INT *chars, INT *lines)
+{
+	GpImage *image;
+	GpGraphics *graphics;
+	GpStringFormat *format;
+	GpRectF rect = { 0, 0, 78, height }, bounds;
+	GpStatus status;
+
+	status = GdipCreateBitmapFromScan0 (10, 10, 0, PixelFormat32bppRGB, NULL, (GpBitmap **) &image);
+	expect (Ok, status);
+	status = GdipGetImageGraphicsContext (image, &graphics);
+	expect (Ok, status);
+	status = GdipCreateStringFormat (StringFormatFlagsLineLimit, 0, &format);
+	expect (Ok, status);
+	status = GdipMeasureString (graphics, s, -1, font, &rect, format, &bounds, chars, lines);
+	expect (Ok, status);
+	GdipDeleteStringFormat (format);
+	GdipDeleteGraphics (graphics);
+	GdipDisposeImage (image);
+}
+
+/* What native GDI+ does with StringFormatFlagsLineLimit, measured against
+ * gdiplus.dll: it keeps floor (height / line spacing) lines, the line spacing
+ * being GdipGetFontHeight, and none if the rectangle is shorter than one line -
+ * except that text which is a single line, with no line break and no wrapping,
+ * is always kept.
+ *
+ * Mono's System.Windows.Forms.ButtonBase sets LineLimit and draws its label
+ * into a rectangle Font.Height tall (15 pixels for MessageBox's buttons with
+ * Noto Sans). Judging the line by Pango's line box, which is taller than the
+ * line spacing, made every such label disappear. */
+static void test_draw_string_line_limit (void)
+{
+	GpFontFamily *family;
+	GpFont *font;
+	GpStatus status;
+	REAL lineSpacing;
+	INT chars, lines;
+	const WCHAR label[] = { 'O', 'K', 0 };
+	const WCHAR labelNewline[] = { 'O', 'K', '\n', 0 };
+	const WCHAR threeLines[] = { 'A', '\n', 'B', '\n', 'C', 0 };
+
+	status = GdipGetGenericFontFamilySansSerif (&family);
+	expect (Ok, status);
+	/* SystemFonts.DefaultFont, which is what MessageBox's buttons use. */
+	status = GdipCreateFont (family, 8.25f, FontStyleRegular, UnitPoint, &font);
+	expect (Ok, status);
+	status = GdipGetFontHeight (font, NULL, &lineSpacing);
+	expect (Ok, status);
+
+	/* The regression: a rectangle exactly Font.Height tall. */
+	ok (draw_button_label (font, label, StringFormatFlagsLineLimit, ceilf (lineSpacing)) > 0,
+		"Expected the label to be drawn into a Font.Height tall rectangle with LineLimit\n");
+	measure_line_limit (font, label, ceilf (lineSpacing), &chars, &lines);
+	expect (2, chars);
+	expect (1, lines);
+
+	/* A single line is kept even when the rectangle is shorter than it... */
+	ok (draw_button_label (font, label, StringFormatFlagsLineLimit, lineSpacing * 0.5f) > 0,
+		"Expected a single line to be drawn into a rectangle half a line tall\n");
+	measure_line_limit (font, label, lineSpacing * 0.5f, &chars, &lines);
+	expect (2, chars);
+	expect (1, lines);
+
+	/* ...but not once there is a line break, even a final one. */
+	expect (0, draw_button_label (font, labelNewline, StringFormatFlagsLineLimit, lineSpacing * 0.9f));
+	expect (0, draw_button_label (font, threeLines, StringFormatFlagsLineLimit, lineSpacing * 0.9f));
+	measure_line_limit (font, threeLines, lineSpacing * 0.9f, &chars, &lines);
+	expect (0, chars);
+	expect (0, lines);
+
+	/* Otherwise floor (height / line spacing) lines; a kept line break counts as fitted. */
+	measure_line_limit (font, threeLines, lineSpacing * 1.5f, &chars, &lines);
+	expect (2, chars);
+	expect (1, lines);
+	measure_line_limit (font, threeLines, lineSpacing * 2.5f, &chars, &lines);
+	expect (4, chars);
+	expect (2, lines);
+	measure_line_limit (font, threeLines, lineSpacing * 3.5f, &chars, &lines);
+	expect (5, chars);
+	expect (3, lines);
+
+	GdipDeleteFont (font);
+	GdipDeleteFontFamily (family);
+}
+
+#endif
+
 int
 main (int argc, char**argv)
 {
@@ -315,6 +467,9 @@ main (int argc, char**argv)
 	test_measure_string ();
 #endif
 	test_measure_string_alignment ();
+#if defined(USE_PANGO_RENDERING) || defined(USE_WINDOWS_GDIPLUS)
+	test_draw_string_line_limit ();
+#endif
 
 	SHUTDOWN;
 	return 0;

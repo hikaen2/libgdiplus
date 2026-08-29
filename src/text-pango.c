@@ -196,6 +196,7 @@ gdip_pango_setup_layout (cairo_t *cr, GDIPCONST WCHAR *stringUnicode, int length
 	int y0;             /* y0,y1,clipNN used for checking line positions vs. clip rectangle */
 	int y1;
 	int trimSpace;      /* whether or not to trim the space */
+	gboolean hardBreak; /* whether the text contains a line break */
 	BOOL use_horizontal_layout;
 
 	gchar *text = utf16_to_utf8 (stringUnicode, length);
@@ -424,26 +425,62 @@ gdip_pango_setup_layout (cairo_t *cr, GDIPCONST WCHAR *stringUnicode, int length
 
 // g_warning("\tftext>%s< (%d)", ftext->str, -1);
 	pango_layout_set_text (layout, ftext->str, ftext->len);
+	/* checked before processing, which drops a final newline */
+	hardBreak = strpbrk (text, "\r\n") != NULL;
 	GdipFree (text);
 	g_string_free(ftext, TRUE);
 
 	/* Trim the text after the last line for ease of counting lines/characters */
 	/* Also prevents drawing whole lines outside the boundaries if NoClip was specified */
-	/* In case of pre-existing clipping, use smaller of clip rectangle or our specified height */
 	if (FrameHeight > 0) {
+		/* With LineLimit, GDI+ keeps floor (height / line spacing) lines, the line
+		 * spacing being what GdipGetFontHeight reports - none at all if the
+		 * rectangle is shorter than one line - except that text which is a
+		 * single line, with no line break and no wrapping, is always kept.
+		 * (Measured against native gdiplus.dll.) Pango's own line box is usually
+		 * taller than that line spacing, since it rounds ascent and descent up
+		 * separately, so it must not be used here: Mono's ButtonBase draws into a
+		 * rectangle exactly Font.Height tall, and the label disappeared. */
+		int maxLines = G_MAXINT;
+		if (fmt->formatFlags & StringFormatFlagsLineLimit) {
+			REAL lineSpacing;
+			REAL frameHeight = (fmt->formatFlags & StringFormatFlagsDirectionVertical) ? rc->Width : rc->Height;
+			if (GdipGetFontHeight (font, NULL, &lineSpacing) == Ok && lineSpacing > 0)
+				maxLines = (int) floor (frameHeight / lineSpacing);
+			if (maxLines < 1 && !hardBreak && pango_layout_get_line_count (layout) == 1)
+				maxLines = 1;
+		}
+
 		iter = pango_layout_get_iter (layout);
+		i = 0;
 		do {
 			if (iter == NULL)
 				break;
 			pango_layout_iter_get_line_yrange (iter, &y0, &y1);
 			//g_warning("yrange: %d  %d  FrameHeight: %f", y0 / PANGO_SCALE, y1 / PANGO_SCALE, FrameHeight);
-			/* StringFormatFlagsLineLimit */
-			if (((fmt->formatFlags & StringFormatFlagsLineLimit) && y1 / PANGO_SCALE > FrameHeight) || (y0 / PANGO_SCALE >= FrameHeight)) {
+			if (i >= maxLines || (y0 / PANGO_SCALE >= FrameHeight)) {
 				PangoLayoutLine *line = pango_layout_iter_get_line_readonly (iter);
-				pango_layout_set_text (layout, pango_layout_get_text (layout), line->start_index);
-				
+				const char *t = pango_layout_get_text (layout);
+				int cut = line->start_index;
+				int keep = cut;
+				/* Leave out the line break that ends the last kept line: Pango would
+				 * lay out an empty line after it, which GDI+ does not count, and which
+				 * would throw the vertical alignment off. MeasureString still counts
+				 * the break as fitted, as GDI+ does. */
+				if (keep > 0 && t [keep - 1] == '\n')
+					keep--;
+				if (keep > 0 && t [keep - 1] == '\r')
+					keep--;
+				if (keep == 0) {
+					keep = cut;
+				} else if (keep < cut && charsRemoved && *charsRemoved) {
+					int last = g_utf8_prev_char (t + keep) - t;
+					gdip_set_array_values (*charsRemoved + last, (*charsRemoved) [last] + (cut - keep), keep - last);
+				}
+				pango_layout_set_text (layout, t, keep);
 				break;
 			}
+			i++;
 		} while (pango_layout_iter_next_line (iter));
 		pango_layout_iter_free (iter);
 	}
@@ -607,7 +644,8 @@ pango_MeasureString (GpGraphics *graphics, GDIPCONST WCHAR *stringUnicode, INT l
 			if (iter == NULL)
 				break;
 			pango_layout_iter_get_line_yrange (iter, &y0, &y1);
-			if ((format && (format->formatFlags & StringFormatFlagsLineLimit) && y1 / PANGO_SCALE > max_y) || y0 / PANGO_SCALE >= max_y)
+			/* LineLimit has already been applied by gdip_pango_setup_layout */
+			if (y0 / PANGO_SCALE >= max_y)
 				break;
 			lines++;
 			if (pango_layout_iter_at_last_line (iter)) {
